@@ -1,51 +1,137 @@
-// The screenshot scenes behind ?shot=start|play|chase|mission. Each one plays the
-// real rules forward from a fresh world for a fixed number of steps, steered by the
-// world's road-graph autopilot, so the frame is what a short game really looks like
-// and the same seed always gives the same frame. The scenes are staged, painted
-// twice, and window.__shotReady is set by main.js.
-import { STEP } from './config.js';
-import { EVENT_BUSTED, EVENT_WASTED } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Neon Harbor — screenshot staging and autopilot.
+// A URL query like ?shot=play&seed=1 puts the game into a deterministic
+// scene and drives the player itself, so the four screenshots are real
+// renders of the game with no human at the keyboard. The scenes are:
+//   start   — the title screen over the night city
+//   play    — mid-mission driving (Night Market Dash)
+//   chase   — a five-star police chase
+//   mission — a courier drop-off on foot beside a car
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 22;
-const CHASE_SECONDS = 16;
-const MISSION_SECONDS = 18;
+import { missionTarget, startGame, startMission } from './world.js';
 
-function runSteps(world, seconds, controls) {
-  const steps = Math.round(seconds / STEP);
-  for (let i = 0; i < steps; i += 1) {
-    const c = typeof controls === 'function' ? controls() : controls;
-    const events = world.step(STEP, c || {}, false);
-    if (events & (EVENT_WASTED | EVENT_BUSTED)) break;
+/** Read the shot parameters from the page URL. Null when this is a normal play session. */
+export function getShotParams() {
+  if (typeof window === 'undefined' || !window.location) return null;
+  const q = new URLSearchParams(window.location.search);
+  const shot = q.get('shot');
+  if (!shot) return null;
+  const seed = parseInt(q.get('seed') || '1', 10) || 1;
+  return { shot, seed };
+}
+
+/** Put a car under the player at a road point, facing along the road. */
+function giveCar(world, x, y, angle) {
+  const p = world.player;
+  // Find the nearest parked car and move it to the spot, or spawn one.
+  let car = null;
+  let bestD = Infinity;
+  for (const c of world.cars) {
+    if (c.kind !== 'parked') continue;
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d < bestD) {
+      bestD = d;
+      car = c;
+    }
+  }
+  if (!car) {
+    car = { id: world.cars.length, x, y, angle, speed: 0, color: '#ff5d5d', kind: 'parked', driver: false, road: null, dir: 1, targetSpeed: 0, stuckT: 0 };
+    world.cars.push(car);
+  }
+  car.x = x;
+  car.y = y;
+  car.angle = angle;
+  car.speed = 0;
+  car.kind = 'player';
+  p.car = car;
+  p.onFoot = false;
+  p.x = x;
+  p.y = y;
+  p.angle = angle;
+  return car;
+}
+
+/** Configure the world for one of the four screenshot scenes. */
+export function applyShot(world, shot) {
+  const p = world.player;
+  if (shot === 'start') {
+    world.state = 'title';
+    world.camera.x = 1600;
+    world.camera.y = 1100;
+    return;
+  }
+  startGame(world);
+  // Skip the briefing so the scene is the game itself.
+  world.state = 'play';
+  if (shot === 'play') {
+    // Night Market Dash: in a car, mid-delivery, timer running.
+    world.missionIndex = 1;
+    startMission(world);
+    world.state = 'play';
+    giveCar(world, 1260, 1260, 0);
+    world.player.car.speed = 260;
+    world.time = 12;
+  } else if (shot === 'chase') {
+    // Five-star chase: player in a fast car, police closing in.
+    world.missionIndex = 7;
+    startMission(world);
+    world.state = 'play';
+    giveCar(world, 1540, 1260, Math.PI / 2);
+    world.player.car.speed = 320;
+    world.wanted = 5;
+    // Place three police cars just behind the player.
+    for (let i = 0; i < 3; i++) {
+      world.police.push({
+        id: 100 + i, x: 1540 - 60 - i * 70, y: 1260 + (i - 1) * 50, angle: Math.PI / 2, speed: 300,
+        color: '#e8ecff', kind: 'police', driver: true, road: null, dir: 1,
+        targetSpeed: 420, stuckT: 0, siren: i * 1.1,
+      });
+    }
+    world.time = 8;
+  } else if (shot === 'mission') {
+    // The Courier: on foot beside a car, a drop-off marker ahead.
+    world.missionIndex = 3;
+    startMission(world);
+    world.state = 'play';
+    giveCar(world, 980, 980, 0);
+    world.player.car.speed = 0;
+    // Step out so the shot shows the player on foot by the car.
+    const car = world.player.car;
+    car.kind = 'parked';
+    world.player.car = null;
+    world.player.onFoot = true;
+    world.player.x = 980 + 34;
+    world.player.y = 980 + 26;
+    world.player.angle = -Math.PI / 4;
+    world.time = 5;
   }
 }
 
-/**
- * Set `world` to the named scene and return the screen to draw over it and the
- * UI facts the panel needs. Unknown names stage the title scene.
- */
-export function stageShot(name, world) {
-  world.reset();
-  const ui = { best: 0, hasSave: false, saveMission: 0, saveCash: 0, overKind: 'wasted' };
-  if (name === 'play') {
-    runSteps(world, PLAY_SECONDS, () => world.autopilotControls());
-    return { screen: SCREEN_PLAY, ui };
+/** Drive the player toward the current objective (or just cruise). */
+export function driveAutopilot(world, input, dt) {
+  const p = world.player;
+  const t = missionTarget(world);
+  const tx = t ? t.x : p.x + 600;
+  const ty = t ? t.y : p.y;
+  const dx = tx - p.x;
+  const dy = ty - p.y;
+  const desired = Math.atan2(dy, dx);
+  let turn = 0;
+  const diff = desired - p.angle;
+  const wrapped = Math.atan2(Math.sin(diff), Math.cos(diff));
+  if (wrapped > 0.12) turn = -1; // A
+  else if (wrapped < -0.12) turn = 1; // D
+  const codes = ['KeyW'];
+  if (turn === -1) codes.push('KeyA');
+  if (turn === 1) codes.push('KeyD');
+  if (p.onFoot) {
+    // On foot, walk toward the target.
+    const fx = [];
+    if (dx > 30) fx.push('KeyD');
+    if (dx < -30) fx.push('KeyA');
+    if (dy > 30) fx.push('KeyS');
+    if (dy < -30) fx.push('KeyW');
+    input.setVirtual(fx.length ? fx : ['KeyW']);
+    return;
   }
-  if (name === 'chase') {
-    world.addWanted(4, 'shot');
-    runSteps(world, CHASE_SECONDS, () => world.autopilotControls());
-    return { screen: SCREEN_PLAY, ui };
-  }
-  if (name === 'mission') {
-    world.startMission(2); // Three Crates
-    runSteps(world, MISSION_SECONDS, () => world.autopilotControls());
-    const over = world.state.player.hp <= 0;
-    return { screen: over ? SCREEN_OVER : SCREEN_PLAY, ui };
-  }
-  // Title: let the traffic roll for a few seconds behind the panel.
-  for (let i = 0; i < Math.round(START_SECONDS / STEP); i += 1) {
-    world.step(STEP, {}, true);
-  }
-  return { screen: SCREEN_TITLE, ui };
+  input.setVirtual(codes);
 }

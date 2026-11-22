@@ -1,106 +1,64 @@
-// Keyboard and pointer input for Neon Harbor. Held keys give the car's throttle and
-// steering (or the on-foot walk direction); one-shot presses (enter a car, pause,
-// confirm, mute) are queued as bit flags and taken once by the loop, so a press
-// between two frames is never lost and never counted twice. The mouse aims the gun:
-// its world position is recomputed every frame from the camera, so the aim follows
-// the view as it scrolls.
+// Neon Harbor — keyboard input.
+// One shared object: the game loop reads it, the autopilot can drive it, and
+// the HUD never touches it. Keys are tracked by `code` (KeyW, ArrowUp, ...).
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_ENTER = 4;
-export const ACTION_MUTE = 8;
+export const Input = {
+  down: new Set(),
+  pressed: new Set(),
+  attached: false,
 
-const UP = new Set(['ArrowUp', 'KeyW']);
-const DOWN = new Set(['ArrowDown', 'KeyS']);
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-const ENTER = new Set(['KeyE']);
-const MUTE = new Set(['KeyM']);
-const HANDBRAKE = new Set(['ShiftLeft', 'ShiftRight']);
+  /** Start listening for keydown / keyup on the window. Safe to call twice. */
+  attach() {
+    if (this.attached || typeof window === 'undefined') return;
+    this.attached = true;
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      if (!e.repeat) this.pressed.add(e.code);
+      this.down.add(e.code);
+    });
+    window.addEventListener('keyup', (e) => {
+      this.down.delete(e.code);
+    });
+    window.addEventListener('blur', () => {
+      this.down.clear();
+      this.pressed.clear();
+    });
+  },
 
-export function createInput(target, toWorld) {
-  let up = false;
-  let down = false;
-  let left = false;
-  let right = false;
-  let handbrake = false;
-  let shooting = false;
-  let actions = 0;
-  let mouseX = 0;
-  let mouseY = 0;
-  let mouseIn = false;
+  /** True while the key is held. */
+  isDown(code) {
+    return this.down.has(code);
+  },
 
-  window.addEventListener('keydown', (event) => {
-    if (UP.has(event.code)) up = true;
-    else if (DOWN.has(event.code)) down = true;
-    else if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (HANDBRAKE.has(event.code)) handbrake = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else if (ENTER.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_ENTER;
-    } else if (MUTE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_MUTE;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (UP.has(event.code)) up = false;
-    else if (DOWN.has(event.code)) down = false;
-    else if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-    else if (HANDBRAKE.has(event.code)) handbrake = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything.
-  window.addEventListener('blur', () => {
-    up = false;
-    down = false;
-    left = false;
-    right = false;
-    handbrake = false;
-    shooting = false;
-  });
-  target.addEventListener('pointermove', (event) => {
-    mouseX = event.clientX;
-    mouseY = event.clientY;
-    mouseIn = true;
-  });
-  target.addEventListener('pointerdown', (event) => {
-    if (event.button === 0) shooting = true;
-    actions |= ACTION_CONFIRM;
-  });
-  target.addEventListener('pointerup', (event) => {
-    if (event.button === 0) shooting = false;
-  });
-  target.addEventListener('pointerleave', () => {
-    mouseIn = false;
-    shooting = false;
-  });
+  /** True only on the frame the key went down (edge-triggered). */
+  wasPressed(code) {
+    return this.pressed.has(code);
+  },
 
-  return {
-    /** The held driving keys, for the world to turn into throttle and steering. */
-    keys() {
-      return { up, down, left, right, handbrake };
-    },
-    /** Whether the fire button (mouse) is held. */
-    isShooting() {
-      return shooting;
-    },
-    /** The mouse position in world pixels, or null when the pointer never moved. */
-    aim() {
-      if (!mouseIn || typeof toWorld !== 'function') return null;
-      return toWorld(mouseX, mouseY);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
-}
+  /** True if any of the given codes is held. */
+  anyDown(codes) {
+    for (const c of codes) if (this.down.has(c)) return true;
+    return false;
+  },
+
+  /** Movement axis from WASD / arrows: { x: -1..1, y: -1..1 }. */
+  axis() {
+    let x = 0;
+    let y = 0;
+    if (this.anyDown(['KeyA', 'ArrowLeft'])) x -= 1;
+    if (this.anyDown(['KeyD', 'ArrowRight'])) x += 1;
+    if (this.anyDown(['KeyW', 'ArrowUp'])) y -= 1;
+    if (this.anyDown(['KeyS', 'ArrowDown'])) y += 1;
+    return { x, y };
+  },
+
+  /** Clear the edge-triggered set; the loop calls this once per frame. */
+  endFrame() {
+    this.pressed.clear();
+  },
+
+  /** Drive the input from code (autopilot): set the held keys for this frame. */
+  setVirtual(codes) {
+    this.down = new Set(codes);
+  },
+};

@@ -1,19 +1,60 @@
-// A small seeded random number generator (mulberry32): the same seed gives the same
-// city, the same traffic and the same screenshot scenes, which is what makes the
-// game repeatable. The helpers hang off the function so callers can ask for a range,
-// an integer or a pick without repeating the arithmetic everywhere.
+// Neon Harbor — a small deterministic random number generator.
+// The city, the traffic and the missions all draw from one seeded stream so a
+// given seed always builds the same Port Meridian.
 
-export function createRandom(seed) {
-  let a = seed | 0;
-  function next() {
+/** Mulberry32: a fast 32-bit seeded PRNG. */
+export function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a |= 0;
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** A seeded RNG with the helpers the city and the game use. */
+export class Rng {
+  constructor(seed = 1) {
+    this.next = mulberry32(seed);
+    this.seed = seed >>> 0;
   }
-  next.range = (lo, hi) => lo + next() * (hi - lo);
-  next.int = (lo, hi) => lo + Math.floor(next() * (hi - lo + 1));
-  next.pick = (list) => list[Math.floor(next() * list.length)];
-  next.chance = (p) => next() < p;
-  return next;
+
+  /** A float in [0, 1). */
+  float() {
+    return this.next();
+  }
+
+  /** A float in [min, max). */
+  range(min, max) {
+    return min + this.next() * (max - min);
+  }
+
+  /** An integer in [min, max] inclusive. */
+  int(min, max) {
+    return min + Math.floor(this.next() * (max - min + 1));
+  }
+
+  /** True with probability p (0..1). */
+  chance(p) {
+    return this.next() < p;
+  }
+
+  /** One element of an array, uniformly. */
+  pick(arr) {
+    return arr[Math.floor(this.next() * arr.length)];
+  }
+
+  /** A new array with the elements shuffled (Fisher-Yates). */
+  shuffle(arr) {
+    const out = arr.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(this.next() * (i + 1));
+      const t = out[i];
+      out[i] = out[j];
+      out[j] = t;
+    }
+    return out;
+  }
 }

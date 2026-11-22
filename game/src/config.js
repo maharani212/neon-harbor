@@ -1,231 +1,114 @@
-// Neon Harbor — every tuning number and colour in one place.
-// The city is a fixed 2048x2048 world: an 8x8 grid of intersections, roads 56 px wide,
-// blocks 200 px square. The renderer scales the camera view to the window, so no rule
-// below depends on the screen size.
+// Neon Harbor — configuration and tuning.
+// Every number that shapes the city, the cars and the missions lives here so
+// the rest of the game reads plain constants instead of magic numbers.
 
-export const STEP = 1 / 60;
+export const WORLD_W = 3200;
+export const WORLD_H = 2400;
 
-export const WORLD = {
-  size: 2048,
-  pitch: 256, // block + road
-  road: 56,
-  block: 200,
-  grid: 8, // intersections per side (0..7)
+// City grid: roads are ROAD_W wide, blocks are BLOCK wide, pitch is their sum.
+export const ROAD_W = 72;
+export const BLOCK = 208;
+export const PITCH = ROAD_W + BLOCK; // 280
+
+// Vertical road centre lines (x) and horizontal road centre lines (y).
+export const ROAD_X = [140, 420, 700, 980, 1260, 1540, 1820, 2100, 2380, 2660, 2940];
+export const ROAD_Y = [140, 420, 700, 980, 1260, 1540, 1820, 2100];
+
+// Harbor: water starts at this y; the dock strip sits just above it.
+export const WATER_Y = 2180;
+export const DOCK_Y0 = 2136;
+export const DOCK_Y1 = 2180;
+// The pier (walkable) crosses the water at this road's x, the yacht waits at its end.
+export const PIER_X = 1540;
+export const PIER_HALF = 26;
+export const PIER_END_Y = 2340;
+
+// Neon palette: dark blue night, magenta / cyan / yellow light.
+export const PALETTE = {
+  sky: '#070b1d',
+  water: '#0a1f3d',
+  waterLine: '#123a6b',
+  road: '#1a1d2e',
+  roadEdge: '#2c3048',
+  lane: '#8f96b8',
+  sidewalk: '#23263a',
+  park: '#0e2f1e',
+  parkLine: '#1d5a34',
+  building: '#141830',
+  buildingEdge: '#2a2f55',
+  windowLit: '#ffd166',
+  windowDark: '#1d2447',
+  player: '#ff2e88',
+  ped: '#e8e6ff',
+  police: '#e8ecff',
+  policeLightR: '#ff2b2b',
+  policeLightB: '#2b6bff',
+  objective: '#ffd166',
+  money: '#7dff9e',
+  star: '#ffd166',
+  danger: '#ff4d4d',
+  text: '#f2f4ff',
+  muted: '#9aa1c7',
 };
 
-export const DISTRICTS = [
-  { name: 'DOCKS', x0: 0, y0: 0, x1: 4, y1: 2 },
-  { name: 'NIGHT MARKET', x0: 4, y0: 0, x1: 8, y1: 2 },
-  { name: 'OLD TOWN', x0: 0, y0: 2, x1: 3, y1: 5 },
-  { name: 'NEON HARBOR', x0: 3, y0: 2, x1: 6, y1: 5 },
-  { name: 'UPTOWN', x0: 6, y0: 2, x1: 8, y1: 5 },
-  { name: 'INDUSTRIAL', x0: 0, y0: 5, x1: 4, y1: 8 },
-  { name: 'MARINA', x0: 4, y0: 5, x1: 8, y1: 8 },
-];
+export const NEON_SIGNS = ['#ff2e88', '#00e5ff', '#ffd166', '#7dff9e', '#b967ff', '#ff7a3d'];
 
-// One block is a construction site (block coords, not pixels): traffic routes around it.
-export const CONSTRUCTION_BLOCK = { bx: 5, by: 3 };
+// Traffic / pedestrian car colors.
+export const CAR_COLORS = ['#ff5d5d', '#ffd166', '#4dc3ff', '#7dff9e', '#c77dff', '#ff9f43', '#e8ecff', '#5df2d6'];
 
-// Two gas stations, by block coords; pumps sit on the block's south edge.
-export const GAS_STATIONS = [
-  { bx: 1, by: 1, name: 'Docks Fuel' },
-  { bx: 6, by: 6, name: 'Marina Fuel' },
-];
-
+// On-foot movement.
 export const PLAYER = {
-  walkSpeed: 230,
-  radius: 13,
+  radius: 11,
+  walkSpeed: 210,
+  runSpeed: 300,
   hp: 100,
-  armorMax: 100,
-  enterRadius: 46,
-  // On-foot shooting.
-  pistolDamage: 34,
-  pistolRange: 420,
-  pistolCooldown: 0.28,
-  longshotDamage: 70,
-  longshotRange: 640,
-  longshotCooldown: 0.42,
 };
 
+// Car physics (pixels, seconds).
 export const CAR = {
   length: 46,
-  width: 24,
-  radius: 20,
-  accel: 340,
-  brake: 520,
-  reverseAccel: 220,
-  maxSpeed: 520,
-  maxReverse: 170,
-  turnRate: 2.6,
-  // Even at a standstill the wheel still bites a little, so an autopilot that
-  // stops nose-first into a wall can turn itself out instead of deadlocking.
-  minTurnAuthority: 0.3,
-  drag: 0.55,
-  offroadDrag: 1.6,
-  fuelMax: 100,
-  fuelDrain: 1.1, // per second while the throttle is down
-  fuelRefill: 22, // per second parked at a pump
-  ramDamage: 8,
-};
-
-export const BIKE = {
-  length: 34,
-  width: 14,
-  radius: 14,
-  accel: 460,
-  brake: 560,
-  reverseAccel: 200,
-  maxSpeed: 640,
-  maxReverse: 160,
-  turnRate: 3.4,
-  minTurnAuthority: 0.35,
-  drag: 0.5,
-  offroadDrag: 1.4,
-  fuelMax: 100,
-  fuelDrain: 0.9,
-  fuelRefill: 22,
-  ramDamage: 5,
-};
-
-export const TRAFFIC = {
-  count: 14,
-  speed: 150,
-  speedJitter: 60,
-  // A traffic car re-picks a destination when it arrives, or after this long.
-  retargetSeconds: 26,
-};
-
-export const PEDS = {
-  count: 22,
-  speed: 55,
-  speedJitter: 30,
-  fleeRadius: 130,
-};
-
-export const POLICE = {
-  // How many cruisers are out for each wanted level (index = wanted).
-  countByWanted: [0, 1, 2, 3, 4, 5],
-  speed: 430,
+  width: 22,
   accel: 420,
-  turnRate: 3.0,
-  ramDamage: 6,
-  // Seconds a cruiser must sit on a slow player before the bust lands.
-  bustSeconds: 2.5,
-  bustRadius: 56,
-  bustMaxSpeed: 26,
-  // A cruiser gives up and despawns past this distance from the player.
-  despawnRadius: 900,
-  spawnRadius: 620,
-  // Wanted decays this fast when no crime is happening and no cruiser is near.
-  decayPerSecond: 0.045,
+  brake: 620,
+  reverseAccel: 260,
+  maxSpeed: 560,
+  maxReverse: 180,
+  steer: 2.6,
+  grip: 5.2,
+  drift: 0.92,
 };
 
-export const ROADBLOCK = {
-  minWanted: 3,
-  // Cars parked across the road ahead of the player, per roadblock.
-  cars: 2,
-  ahead: 340,
-  // A roadblock dissolves once the heat drops below this.
-  clearBelow: 3,
-};
-
+// Wanted level: stars 0..5. Police count and speed scale with stars.
 export const WANTED = {
   max: 5,
-  stealCar: 0.6,
-  hitPed: 1.0,
-  hitPolice: 1.2,
-  shoot: 0.35,
-  shootNearPolice: 0.8,
-  ramPolice: 0.9,
-  // How close a cruiser must be to "see" a crime.
-  seeRadius: 520,
+  decayDelay: 6, // seconds with no police sight before stars start falling
+  decayRate: 0.25, // stars per second once decaying
+  policePerStar: [0, 1, 2, 3, 4, 6],
+  policeSpeed: [0, 300, 330, 365, 400, 440],
+  sightRange: 520,
+  bustRange: 46,
+  bustTime: 1.6, // seconds a cop must stay close on foot to bust you
 };
 
-// Pickups scattered around the city.
-export const PICKUPS = {
-  health: { heal: 45, radius: 26 },
-  armor: { armor: 50, radius: 26 },
-  longshot: { radius: 26 },
-  turbo: { radius: 26, boostSeconds: 6 },
-  respawnSeconds: 24,
-};
-
-export const BULLET = {
-  speed: 900,
-  radius: 4,
-  life: 1.4,
-};
-
+// Mission payouts and timers.
 export const MISSIONS = [
-  { id: 1, title: 'First Drop', pay: 300 },
-  { id: 2, title: 'Night Market Dash', pay: 400 },
-  { id: 3, title: 'Three Crates', pay: 450 },
-  { id: 4, title: 'The Courier', pay: 500 },
-  { id: 5, title: 'Fare Play', pay: 450 },
-  { id: 6, title: 'Vex Escort', pay: 600 },
-  { id: 7, title: 'Getaway', pay: 650 },
-  { id: 8, title: 'Five-Star Finale', pay: 1000 },
+  { id: 1, name: 'First Ride', payout: 200, brief: 'Steal any car and drive to the marker.' },
+  { id: 2, name: 'Night Market Dash', payout: 350, brief: 'Deliver the package across town. Beat the clock.', time: 70 },
+  { id: 3, name: 'Harbor Heist', payout: 500, brief: 'Grab the 3 crates at the docks. The law is watching.', crates: 3 },
+  { id: 4, name: 'The Courier', payout: 600, brief: 'Three drop-offs, in order. No questions asked.', stops: 3 },
+  { id: 5, name: 'Getaway Driver', payout: 800, brief: 'Lose the 3-star chase and reach the safehouse.', stars: 3 },
+  { id: 6, name: 'Midnight Run', payout: 1000, brief: 'Race through 4 checkpoints across the city.', checkpoints: 4, time: 110 },
+  { id: 7, name: 'Port Meridian PD', payout: 1200, brief: 'Survive a 4-star manhunt for 60 seconds.', stars: 4, time: 60 },
+  { id: 8, name: 'Five-Star Finale', payout: 2000, brief: 'Survive the 5-star chase and reach the yacht.', stars: 5 },
 ];
 
-export const COMBO = {
-  step: 0.25, // +25% pay per consecutive completed mission
-  max: 2.0, // at most triple pay
-};
+export const START_MONEY = 0;
+export const BUST_FINE = 150;
+export const WASTED_FINE = 200;
+export const PICKUP_CASH = 50;
 
-// Day/night: a full cycle takes this long; 0 = dawn, 0.25 = noon, 0.5 = dusk, 0.75 = midnight.
-export const DAY_LENGTH = 240;
-
-export const PALETTE = {
-  backdrop: '#0b0e1a',
-  ground: '#141a2e',
-  sidewalk: '#1d2440',
-  road: '#232a45',
-  roadLine: '#3a4470',
-  blockEdge: '#2c3558',
-  buildingRoof: '#2a3352',
-  buildingRoof2: '#333d63',
-  buildingRoof3: '#3d2f5e',
-  buildingEdge: '#4a5580',
-  construction: '#3a2f14',
-  hazard: '#f2c94c',
-  barrier: '#ff7a3d',
-  gasCanopy: '#0f7a6e',
-  gasPump: '#e8ecf5',
-  park: '#14352a',
-  water: '#0e2a4a',
-  player: '#19e3ff',
-  playerCar: '#19e3ff',
-  bike: '#ff4fd8',
-  traffic: '#c9d2e8',
-  traffic2: '#8fa0c9',
-  traffic3: '#e8b64c',
-  police: '#e8ecf5',
-  policeLightR: '#ff3b30',
-  policeLightB: '#2f7bff',
-  ped: '#ffd166',
-  ped2: '#7dff9e',
-  ped3: '#ff9ecf',
-  bullet: '#ffe066',
-  muzzle: '#fff3b0',
-  pickupHealth: '#2fd67a',
-  pickupArmor: '#3fa9ff',
-  pickupGun: '#ff5c8a',
-  pickupTurbo: '#ffb020',
-  marker: '#ffe066',
-  markerRing: '#ffe066',
-  text: '#eef1f5',
-  muted: '#8b93a3',
-  gold: '#f2c94c',
-  danger: '#ff5c5c',
-  hudPanel: 'rgba(10, 13, 26, 0.82)',
-  hudBorder: '#3a4470',
-  minimapBg: 'rgba(10, 13, 26, 0.85)',
-  star: '#ffe066',
-  starEmpty: '#3a4470',
-};
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the save (mission, cash, best combo) is kept between visits (this browser only). */
-export const SAVE_KEY = 'neon-harbor.save.v1';
-export const BEST_KEY = 'neon-harbor.best.v1';
+// View.
+export const VIEW_W = 1280;
+export const VIEW_H = 720;
+export const MINIMAP_W = 210;
+export const MINIMAP_H = 158;
